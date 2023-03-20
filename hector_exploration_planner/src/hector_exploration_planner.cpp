@@ -196,6 +196,9 @@ bool HectorExplorationPlanner::makePlan(const geometry_msgs::PoseStamped &start,
       
   }
 
+  plan[plan.size()-1].header.frame_id = plan[plan.size()-2].header.frame_id;
+  ROS_WARN("FILLING LAST PLAN POSE FRAME_ID! THIS SHOULD NOT BE REQUIRED!");
+
   ROS_INFO("[hector_exploration_planner] planning: plan has been found! plansize: %u ", (unsigned int)plan.size());
   return true;
 }
