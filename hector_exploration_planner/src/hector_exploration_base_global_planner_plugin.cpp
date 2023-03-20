@@ -46,7 +46,7 @@ HectorExplorationBaseGlobalPlannerPlugin::~HectorExplorationBaseGlobalPlannerPlu
 bool HectorExplorationBaseGlobalPlannerPlugin::makePlan(const geometry_msgs::PoseStamped& start,
                       const geometry_msgs::PoseStamped& goal, std::vector<geometry_msgs::PoseStamped>& plan)
 {
-  return exploration_planner->makePlan(start, goal, plan);
+  return exploration_planner->doExploration(start, plan);
 }
 
 void HectorExplorationBaseGlobalPlannerPlugin::initialize(std::string name, costmap_2d::Costmap2DROS* costmap_ros)
