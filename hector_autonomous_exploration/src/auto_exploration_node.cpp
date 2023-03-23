@@ -25,6 +25,7 @@ public:
 
         // get parameters
         nh.param<float>("replanTimerPeriod", replanTimerPeriod, 1.0);
+        nh.param<int>("maxPlanRetries", maxPlanRetries, 5);
         nh.param<std::string>("mbfController", mbfController, "TebLocalPlannerROS");
         nh.param<bool>("mbfToleranceFromAction", mbfToleranceFromAction, true);
         nh.param<float>("mbfDistTolerance", mbfDistTolerance, 1.0);
@@ -43,9 +44,12 @@ public:
         ROS_INFO("Autonomous exploration node ready!");
     }
 
-protected:
+private:
     ros::NodeHandle nh;
+    int planFailCounter = 0;
+    bool explorationEnabled = false;
 
+protected:
     ros::Timer replanTimer;
     ros::ServiceServer exploreSrvServer;
     ExePathActionClient* exePathActionClient;
@@ -54,12 +58,12 @@ protected:
     tf2_ros::Buffer buffer;
     tf2_ros::TransformListener listener;
     
-    bool explorationEnabled = false;
-    bool mbfToleranceFromAction = true;
-    float replanTimerPeriod = 1.0;
-    float mbfDistTolerance = 1.0;
-    float mbfAngleTolerance = 3.14;
-    std::string mbfController;
+    int maxPlanRetries = 0;
+    bool mbfToleranceFromAction = false;
+    float replanTimerPeriod = 0.0;
+    float mbfDistTolerance = 0.0;
+    float mbfAngleTolerance = 0.0;
+    std::string mbfController = "";
 
     void goalCallback(const ros::TimerEvent& event){
         if (explorationEnabled){            
@@ -71,14 +75,53 @@ protected:
             mbf_msgs::ExePathGoal goal;
 
             // call the planner and fill the goal
-            planner->doExploration(robot_pose, goal.path.poses);
+            if (!planner->doExploration(robot_pose, goal.path.poses)){
+                // increment planning fail counter
+                planFailCounter++;
+                
+                // check if plan failed more than the max allowed retries
+                if (planFailCounter > maxPlanRetries){
+                    explorationEnabled = false;
+                    ROS_WARN("Maximum planning retries exceeded! Exploration stopped.");
+                    return;
+                }
+            }else{
+                // plan succeeded, lets reset the plan fail counter
+                planFailCounter = 0;
+            }
             goal.path.header.frame_id = costmap_2d_ros->getGlobalFrameID();
             goal.path.header.stamp = ros::Time::now();
             goal.controller = mbfController;
             goal.tolerance_from_action = mbfToleranceFromAction;
             goal.dist_tolerance = mbfDistTolerance;
             goal.angle_tolerance = mbfAngleTolerance;
-            exePathActionClient->sendGoal(goal);
+            exePathActionClient->sendGoal(goal, boost::bind(&AutoExploration::goalDoneCallback, this, _1, _2));
+        }
+    }
+
+    void goalDoneCallback(const actionlib::SimpleClientGoalState &state, const mbf_msgs::ExePathResultConstPtr &result){
+        // something is really wrong, abort!
+        if (state == actionlib::SimpleClientGoalState::StateEnum::LOST){
+            explorationEnabled = false;
+            return;
+        }
+        
+        // http://docs.ros.org/en/kinetic/api/mbf_msgs/html/action/ExePath.html
+        switch (result->outcome){            
+            case mbf_msgs::ExePathResult::FAILURE:
+            case mbf_msgs::ExePathResult::CANCELED:
+            case mbf_msgs::ExePathResult::NO_VALID_CMD:
+            case mbf_msgs::ExePathResult::COLLISION:
+            case mbf_msgs::ExePathResult::TF_ERROR:
+            case mbf_msgs::ExePathResult::NOT_INITIALIZED:
+            case mbf_msgs::ExePathResult::INVALID_PLUGIN:
+            case mbf_msgs::ExePathResult::INTERNAL_ERROR:
+            case mbf_msgs::ExePathResult::OUT_OF_MAP:
+            case mbf_msgs::ExePathResult::MAP_ERROR:
+            case mbf_msgs::ExePathResult::STOPPED:
+                ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
+                explorationEnabled = false;
+                break;
         }
     }
 
