@@ -26,6 +26,9 @@ public:
         // get parameters
         nh.param<float>("replanTimerPeriod", replanTimerPeriod, 1.0);
         nh.param<std::string>("mbfController", mbfController, "TebLocalPlannerROS");
+        nh.param<bool>("mbfToleranceFromAction", mbfToleranceFromAction, true);
+        nh.param<float>("mbfDistTolerance", mbfDistTolerance, 1.0);
+        nh.param<float>("mbfAngleTolerance", mbfAngleTolerance, 3.14);
 
         // action client for move_base_flex/exe_path 'sub-server'
         exePathActionClient = new ExePathActionClient("move_base_flex/exe_path", true);
@@ -52,13 +55,14 @@ protected:
     tf2_ros::TransformListener listener;
     
     bool explorationEnabled = false;
+    bool mbfToleranceFromAction = true;
     float replanTimerPeriod = 1.0;
+    float mbfDistTolerance = 1.0;
+    float mbfAngleTolerance = 3.14;
     std::string mbfController;
 
     void goalCallback(const ros::TimerEvent& event){
-        if (explorationEnabled){
-            // check if goal is not active TODO!
-            
+        if (explorationEnabled){            
             // call planner
             geometry_msgs::PoseStamped robot_pose;
             costmap_2d_ros->getRobotPose(robot_pose);
@@ -71,6 +75,9 @@ protected:
             goal.path.header.frame_id = costmap_2d_ros->getGlobalFrameID();
             goal.path.header.stamp = ros::Time::now();
             goal.controller = mbfController;
+            goal.tolerance_from_action = mbfToleranceFromAction;
+            goal.dist_tolerance = mbfDistTolerance;
+            goal.angle_tolerance = mbfAngleTolerance;
             exePathActionClient->sendGoal(goal);
         }
     }
