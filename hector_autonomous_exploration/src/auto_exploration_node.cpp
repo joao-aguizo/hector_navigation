@@ -24,7 +24,7 @@ public:
         planner->initialize("hector_exploration_planner", costmap_2d_ros);
 
         // get parameters
-        nh.param<float>("goalTimerPeriod", goalTimerPeriod, 15.0);
+        nh.param<float>("replanTimerPeriod", replanTimerPeriod, 1.0);
         nh.param<std::string>("mbfController", mbfController, "TebLocalPlannerROS");
 
         // action client for move_base_flex/exe_path 'sub-server'
@@ -34,8 +34,8 @@ public:
         // the start and stop service to enable or disable exploration
         exploreSrvServer = nh.advertiseService("start_stop_exploration", &AutoExploration::exploreHandler, this);
 
-        // configure the time
-        goalTimer = nh.createTimer(ros::Duration(goalTimerPeriod), &AutoExploration::goalCallback, this, false, true);
+        // configure replanning timer
+        replanTimer = nh.createTimer(ros::Duration(replanTimerPeriod), &AutoExploration::goalCallback, this, false, true);
 
         ROS_INFO("Autonomous exploration node ready!");
     }
@@ -43,7 +43,7 @@ public:
 protected:
     ros::NodeHandle nh;
 
-    ros::Timer goalTimer;
+    ros::Timer replanTimer;
     ros::ServiceServer exploreSrvServer;
     ExePathActionClient* exePathActionClient;
     hector_exploration_planner::HectorExplorationPlanner* planner;
@@ -52,7 +52,7 @@ protected:
     tf2_ros::TransformListener listener;
     
     bool explorationEnabled = false;
-    float goalTimerPeriod = 1.0;
+    float replanTimerPeriod = 1.0;
     std::string mbfController;
 
     void goalCallback(const ros::TimerEvent& event){
@@ -68,7 +68,7 @@ protected:
 
             // call the planner and fill the goal
             planner->doExploration(robot_pose, goal.path.poses);
-            goal.path.header.frame_id = "map";
+            goal.path.header.frame_id = costmap_2d_ros->getGlobalFrameID();
             goal.path.header.stamp = ros::Time::now();
             goal.controller = mbfController;
             exePathActionClient->sendGoal(goal);
