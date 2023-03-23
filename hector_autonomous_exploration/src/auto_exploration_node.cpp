@@ -35,7 +35,7 @@ public:
         exploreSrvServer = nh.advertiseService("start_stop_exploration", &AutoExploration::exploreHandler, this);
 
         // configure the time
-        goalTimer = nh.createTimer(ros::Duration(goalTimerPeriod), &AutoExploration::goalCallback, this, false, false);
+        goalTimer = nh.createTimer(ros::Duration(goalTimerPeriod), &AutoExploration::goalCallback, this, false, true);
 
         ROS_INFO("Autonomous exploration node ready!");
     }
@@ -51,8 +51,8 @@ protected:
     tf2_ros::Buffer buffer;
     tf2_ros::TransformListener listener;
     
-    bool explorationEnabled;
-    float goalTimerPeriod;
+    bool explorationEnabled = false;
+    float goalTimerPeriod = 1.0;
     std::string mbfController;
 
     void goalCallback(const ros::TimerEvent& event){
