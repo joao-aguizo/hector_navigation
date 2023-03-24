@@ -16,6 +16,13 @@ class AutoExploration
     typedef actionlib::SimpleActionClient<mbf_msgs::ExePathAction> ExePathActionClient;
 
 public:
+    enum Status
+    {
+        IDLE,
+        EXPLORE,
+        PLAN
+    };
+
     AutoExploration() : listener(buffer)
     {
         // initialize the planner
@@ -51,7 +58,9 @@ private:
     int planFailCounter = 0;
     int controllerFailCounter = 0;
     bool explorationEnabled = false;
+    // Status explorationStatus = Status::IDLE;
     std::mutex mtx; // mutex for common flag
+    geometry_msgs::PoseStamped explorationGoal;
 
 protected:
     ros::Timer replanTimer;
@@ -93,19 +102,20 @@ protected:
                     setExplorationEnabled(false);
                     ROS_WARN("Maximum planning retries exceeded! Exploration stopped.");
                 }
-                return;
             }
+            else
+            {
+                // plan succeeded at least once, lets reset the plan fail counter
+                planFailCounter = 0;
 
-            // plan succeeded at least once, lets reset the plan fail counter
-            planFailCounter = 0;
-
-            goal.path.header.frame_id = costmap_2d_ros->getGlobalFrameID();
-            goal.path.header.stamp = ros::Time::now();
-            goal.controller = mbfController;
-            goal.tolerance_from_action = mbfToleranceFromAction;
-            goal.dist_tolerance = mbfDistTolerance;
-            goal.angle_tolerance = mbfAngleTolerance;
-            exePathActionClient->sendGoal(goal, boost::bind(&AutoExploration::goalDoneCallback, this, _1, _2));
+                goal.path.header.frame_id = costmap_2d_ros->getGlobalFrameID();
+                goal.path.header.stamp = ros::Time::now();
+                goal.controller = mbfController;
+                goal.tolerance_from_action = mbfToleranceFromAction;
+                goal.dist_tolerance = mbfDistTolerance;
+                goal.angle_tolerance = mbfAngleTolerance;
+                exePathActionClient->sendGoal(goal, boost::bind(&AutoExploration::goalDoneCallback, this, _1, _2));
+            }
         }
     }
 
