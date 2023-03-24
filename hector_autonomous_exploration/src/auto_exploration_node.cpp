@@ -20,7 +20,7 @@ public:
     {
         IDLE,
         EXPLORE,
-        PLAN
+        REPLAN
     };
 
     AutoExploration() : listener(buffer)
@@ -57,10 +57,8 @@ private:
     ros::NodeHandle nh;
     int planFailCounter = 0;
     int controllerFailCounter = 0;
-    bool explorationEnabled = false;
-    // Status explorationStatus = Status::IDLE;
+    Status explorationStatus = Status::IDLE;
     std::mutex mtx; // mutex for common flag
-    geometry_msgs::PoseStamped explorationGoal;
 
 protected:
     ros::Timer replanTimer;
@@ -70,6 +68,7 @@ protected:
     costmap_2d::Costmap2DROS *costmap_2d_ros;
     tf2_ros::Buffer buffer;
     tf2_ros::TransformListener listener;
+    geometry_msgs::PoseStamped explorationGoal;
 
     int maxPlanRetries = 0;
     int maxControllerRetries = 0;
@@ -81,7 +80,7 @@ protected:
 
     void replanCallback(const ros::TimerEvent &event)
     {
-        if (getExplorationEnabled())
+        if (getExplorationStatus() != Status::IDLE)
         {
             // get robot pose in costmap
             geometry_msgs::PoseStamped robot_pose;
@@ -90,8 +89,22 @@ protected:
             // create the goal
             mbf_msgs::ExePathGoal goal;
 
+            // either generate an exploration path or replan towards the last goal of the previous exploration path
+            bool success = false;
+            switch (getExplorationStatus())
+            {
+            case Status::EXPLORE:
+                success = planner->doExploration(robot_pose, goal.path.poses);
+                explorationGoal = goal.path.poses[goal.path.poses.size() - 1];
+                setExplorationStatus(Status::REPLAN);
+                break;
+            case Status::REPLAN:
+                success = planner->makePlan(robot_pose, explorationGoal, goal.path.poses);
+                break;
+            }
+
             // call the planner and fill the goal
-            if (!planner->doExploration(robot_pose, goal.path.poses))
+            if (!success)
             {
                 // increment planning fail counter
                 planFailCounter++;
@@ -99,7 +112,7 @@ protected:
                 // check if plan failed more than the max allowed retries
                 if (planFailCounter > maxPlanRetries)
                 {
-                    setExplorationEnabled(false);
+                    setExplorationStatus(Status::IDLE);
                     ROS_WARN("Maximum planning retries exceeded! Exploration stopped.");
                 }
             }
@@ -121,26 +134,26 @@ protected:
 
     void goalDoneCallback(const actionlib::SimpleClientGoalState &state, const mbf_msgs::ExePathResultConstPtr &result)
     {
-        if (getExplorationEnabled())
+        if (getExplorationStatus() != Status::IDLE)
         {
-
-            // something is really wrong, abort!
-            if (state == actionlib::SimpleClientGoalState::StateEnum::LOST)
+            switch (state.state_)
             {
-                setExplorationEnabled(false);
-                return;
-            }
+            case actionlib::SimpleClientGoalState::StateEnum::LOST:
+                // something is really wrong, abort!
 
-            // check for controller failures and count them
-            if (state == actionlib::SimpleClientGoalState::StateEnum::ABORTED)
-            {
+                setExplorationStatus(Status::IDLE);
+                break;
+
+            case actionlib::SimpleClientGoalState::StateEnum::ABORTED:
+                // check for controller failures and count them
+
                 controllerFailCounter++;
 
                 // if controller fail counter exceeds maximum we return
                 if (controllerFailCounter > maxControllerRetries)
                 {
                     controllerFailCounter = 0;
-                    setExplorationEnabled(false);
+                    setExplorationStatus(Status::IDLE);
                     ROS_WARN("Maximum controller retries exceeded! Exploration stopped.");
                 }
                 else
@@ -161,10 +174,18 @@ protected:
                     case mbf_msgs::ExePathResult::MAP_ERROR:
                     case mbf_msgs::ExePathResult::STOPPED:
                         ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
-                        setExplorationEnabled(false);
+                        setExplorationStatus(Status::IDLE);
                         break;
                     }
                 }
+                break;
+
+            case actionlib::SimpleClientGoalState::StateEnum::SUCCEEDED:
+                // successfully got to the planned exploration goal, we rewind the 'FSM'
+
+                ROS_INFO("Successful 'exe_path' outcome. Continuing exploration...");
+                setExplorationStatus(Status::EXPLORE);
+                break;
             }
         }
     }
@@ -173,24 +194,20 @@ protected:
     {
         res.success = true;
         res.message = "Successfully defined state.";
-        if (req.data == getExplorationEnabled())
-        {
-            res.message = "Already defined as requested!";
-        }
-        setExplorationEnabled(req.data);
+        setExplorationStatus(req.data ? Status::EXPLORE : Status::IDLE);
         return true;
     }
 
-    bool getExplorationEnabled()
+    Status getExplorationStatus()
     {
         std::lock_guard<std::mutex> locker(mtx);
-        return explorationEnabled;
+        return explorationStatus;
     }
 
-    void setExplorationEnabled(bool value)
+    void setExplorationStatus(Status value)
     {
         std::lock_guard<std::mutex> locker(mtx);
-        explorationEnabled = value;
+        explorationStatus = value;
     }
 };
 
