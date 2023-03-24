@@ -26,6 +26,7 @@ public:
         // get parameters
         nh.param<float>("replanTimerPeriod", replanTimerPeriod, 1.0);
         nh.param<int>("maxPlanRetries", maxPlanRetries, 5);
+        nh.param<int>("maxControllerRetries", maxControllerRetries, 5);
         nh.param<std::string>("mbfController", mbfController, "TebLocalPlannerROS");
         nh.param<bool>("mbfToleranceFromAction", mbfToleranceFromAction, true);
         nh.param<float>("mbfDistTolerance", mbfDistTolerance, 1.0);
@@ -47,6 +48,7 @@ public:
 private:
     ros::NodeHandle nh;
     int planFailCounter = 0;
+    int controllerFailCounter = 0;
     bool explorationEnabled = false;
 
 protected:
@@ -59,6 +61,7 @@ protected:
     tf2_ros::TransformListener listener;
     
     int maxPlanRetries = 0;
+    int maxControllerRetries = 0;
     bool mbfToleranceFromAction = false;
     float replanTimerPeriod = 0.0;
     float mbfDistTolerance = 0.0;
@@ -83,12 +86,13 @@ protected:
                 if (planFailCounter > maxPlanRetries){
                     explorationEnabled = false;
                     ROS_WARN("Maximum planning retries exceeded! Exploration stopped.");
-                    return;
                 }
-            }else{
-                // plan succeeded, lets reset the plan fail counter
-                planFailCounter = 0;
+                return;
             }
+
+            // plan succeeded at least once, lets reset the plan fail counter
+            planFailCounter = 0;
+
             goal.path.header.frame_id = costmap_2d_ros->getGlobalFrameID();
             goal.path.header.stamp = ros::Time::now();
             goal.controller = mbfController;
@@ -106,22 +110,34 @@ protected:
             return;
         }
         
-        // http://docs.ros.org/en/kinetic/api/mbf_msgs/html/action/ExePath.html
-        switch (result->outcome){            
-            case mbf_msgs::ExePathResult::FAILURE:
-            case mbf_msgs::ExePathResult::CANCELED:
-            case mbf_msgs::ExePathResult::NO_VALID_CMD:
-            case mbf_msgs::ExePathResult::COLLISION:
-            case mbf_msgs::ExePathResult::TF_ERROR:
-            case mbf_msgs::ExePathResult::NOT_INITIALIZED:
-            case mbf_msgs::ExePathResult::INVALID_PLUGIN:
-            case mbf_msgs::ExePathResult::INTERNAL_ERROR:
-            case mbf_msgs::ExePathResult::OUT_OF_MAP:
-            case mbf_msgs::ExePathResult::MAP_ERROR:
-            case mbf_msgs::ExePathResult::STOPPED:
-                ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
+        // check for controller failures and count them
+        if (state == actionlib::SimpleClientGoalState::StateEnum::ABORTED){
+            controllerFailCounter++;
+            
+            // if controller fail counter exceeds maximum we return
+            if (controllerFailCounter > maxControllerRetries){
                 explorationEnabled = false;
-                break;
+                ROS_WARN("Maximum controller retries exceeded! Exploration stopped.");
+            }else{
+                // check if controller failure was a non-recoverable or critical one
+                // http://docs.ros.org/en/kinetic/api/mbf_msgs/html/action/ExePath.html
+                switch (result->outcome){            
+                    case mbf_msgs::ExePathResult::FAILURE:
+                    case mbf_msgs::ExePathResult::CANCELED:
+                    case mbf_msgs::ExePathResult::NO_VALID_CMD:
+                    case mbf_msgs::ExePathResult::COLLISION:
+                    case mbf_msgs::ExePathResult::TF_ERROR:
+                    case mbf_msgs::ExePathResult::NOT_INITIALIZED:
+                    case mbf_msgs::ExePathResult::INVALID_PLUGIN:
+                    case mbf_msgs::ExePathResult::INTERNAL_ERROR:
+                    case mbf_msgs::ExePathResult::OUT_OF_MAP:
+                    case mbf_msgs::ExePathResult::MAP_ERROR:
+                    case mbf_msgs::ExePathResult::STOPPED:
+                        ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
+                        explorationEnabled = false;
+                        break;
+                }
+            }
         }
     }
 
