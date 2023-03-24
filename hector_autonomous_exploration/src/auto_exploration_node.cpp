@@ -9,10 +9,10 @@
 #include <tf2_ros/transform_listener.h>
 #include <hector_exploration_planner/hector_exploration_planner.h>
 
+class AutoExploration
+{
 
-class AutoExploration {
-
-typedef actionlib::SimpleActionClient<mbf_msgs::ExePathAction> ExePathActionClient;
+    typedef actionlib::SimpleActionClient<mbf_msgs::ExePathAction> ExePathActionClient;
 
 public:
     AutoExploration() : listener(buffer)
@@ -55,12 +55,12 @@ private:
 protected:
     ros::Timer replanTimer;
     ros::ServiceServer exploreSrvServer;
-    ExePathActionClient* exePathActionClient;
-    hector_exploration_planner::HectorExplorationPlanner* planner;
-    costmap_2d::Costmap2DROS* costmap_2d_ros;
+    ExePathActionClient *exePathActionClient;
+    hector_exploration_planner::HectorExplorationPlanner *planner;
+    costmap_2d::Costmap2DROS *costmap_2d_ros;
     tf2_ros::Buffer buffer;
     tf2_ros::TransformListener listener;
-    
+
     int maxPlanRetries = 0;
     int maxControllerRetries = 0;
     bool mbfToleranceFromAction = false;
@@ -69,8 +69,10 @@ protected:
     float mbfAngleTolerance = 0.0;
     std::string mbfController = "";
 
-    void replanCallback(const ros::TimerEvent& event){
-        if (getExplorationEnabled()){            
+    void replanCallback(const ros::TimerEvent &event)
+    {
+        if (getExplorationEnabled())
+        {
             // get robot pose in costmap
             geometry_msgs::PoseStamped robot_pose;
             costmap_2d_ros->getRobotPose(robot_pose);
@@ -79,12 +81,14 @@ protected:
             mbf_msgs::ExePathGoal goal;
 
             // call the planner and fill the goal
-            if (!planner->doExploration(robot_pose, goal.path.poses)){
+            if (!planner->doExploration(robot_pose, goal.path.poses))
+            {
                 // increment planning fail counter
                 planFailCounter++;
-                
+
                 // check if plan failed more than the max allowed retries
-                if (planFailCounter > maxPlanRetries){
+                if (planFailCounter > maxPlanRetries)
+                {
                     setExplorationEnabled(false);
                     ROS_WARN("Maximum planning retries exceeded! Exploration stopped.");
                 }
@@ -104,75 +108,88 @@ protected:
         }
     }
 
-    void goalDoneCallback(const actionlib::SimpleClientGoalState &state, const mbf_msgs::ExePathResultConstPtr &result){
-        if (getExplorationEnabled()){
+    void goalDoneCallback(const actionlib::SimpleClientGoalState &state, const mbf_msgs::ExePathResultConstPtr &result)
+    {
+        if (getExplorationEnabled())
+        {
 
-             // something is really wrong, abort!
-            if (state == actionlib::SimpleClientGoalState::StateEnum::LOST){
+            // something is really wrong, abort!
+            if (state == actionlib::SimpleClientGoalState::StateEnum::LOST)
+            {
                 setExplorationEnabled(false);
                 return;
             }
-            
+
             // check for controller failures and count them
-            if (state == actionlib::SimpleClientGoalState::StateEnum::ABORTED){
+            if (state == actionlib::SimpleClientGoalState::StateEnum::ABORTED)
+            {
                 controllerFailCounter++;
-                
+
                 // if controller fail counter exceeds maximum we return
-                if (controllerFailCounter > maxControllerRetries){
+                if (controllerFailCounter > maxControllerRetries)
+                {
                     controllerFailCounter = 0;
                     setExplorationEnabled(false);
                     ROS_WARN("Maximum controller retries exceeded! Exploration stopped.");
-                }else{
+                }
+                else
+                {
                     // check if controller failure was a non-recoverable or critical one
                     // http://docs.ros.org/en/kinetic/api/mbf_msgs/html/action/ExePath.html
-                    switch (result->outcome){            
-                        case mbf_msgs::ExePathResult::FAILURE:
-                        case mbf_msgs::ExePathResult::CANCELED:
-                        case mbf_msgs::ExePathResult::NO_VALID_CMD:
-                        case mbf_msgs::ExePathResult::COLLISION:
-                        case mbf_msgs::ExePathResult::TF_ERROR:
-                        case mbf_msgs::ExePathResult::NOT_INITIALIZED:
-                        case mbf_msgs::ExePathResult::INVALID_PLUGIN:
-                        case mbf_msgs::ExePathResult::INTERNAL_ERROR:
-                        case mbf_msgs::ExePathResult::OUT_OF_MAP:
-                        case mbf_msgs::ExePathResult::MAP_ERROR:
-                        case mbf_msgs::ExePathResult::STOPPED:
-                            ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
-                            setExplorationEnabled(false);
-                            break;
+                    switch (result->outcome)
+                    {
+                    case mbf_msgs::ExePathResult::FAILURE:
+                    case mbf_msgs::ExePathResult::CANCELED:
+                    case mbf_msgs::ExePathResult::NO_VALID_CMD:
+                    case mbf_msgs::ExePathResult::COLLISION:
+                    case mbf_msgs::ExePathResult::TF_ERROR:
+                    case mbf_msgs::ExePathResult::NOT_INITIALIZED:
+                    case mbf_msgs::ExePathResult::INVALID_PLUGIN:
+                    case mbf_msgs::ExePathResult::INTERNAL_ERROR:
+                    case mbf_msgs::ExePathResult::OUT_OF_MAP:
+                    case mbf_msgs::ExePathResult::MAP_ERROR:
+                    case mbf_msgs::ExePathResult::STOPPED:
+                        ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
+                        setExplorationEnabled(false);
+                        break;
                     }
                 }
             }
         }
     }
 
-    bool exploreHandler(std_srvs::SetBool::Request &req, std_srvs::SetBool::Response &res){
+    bool exploreHandler(std_srvs::SetBool::Request &req, std_srvs::SetBool::Response &res)
+    {
         res.success = true;
         res.message = "Successfully defined state.";
-        if (req.data == getExplorationEnabled()){
+        if (req.data == getExplorationEnabled())
+        {
             res.message = "Already defined as requested!";
         }
         setExplorationEnabled(req.data);
         return true;
     }
 
-    bool getExplorationEnabled(){
+    bool getExplorationEnabled()
+    {
         std::lock_guard<std::mutex> locker(mtx);
         return explorationEnabled;
     }
 
-    void setExplorationEnabled(bool value){
+    void setExplorationEnabled(bool value)
+    {
         std::lock_guard<std::mutex> locker(mtx);
         explorationEnabled = value;
     }
 };
 
-int main(int argc, char **argv) {
-  ros::init(argc, argv, ROS_PACKAGE_NAME);
+int main(int argc, char **argv)
+{
+    ros::init(argc, argv, ROS_PACKAGE_NAME);
 
-  AutoExploration ae;
+    AutoExploration ae;
 
-  ros::spin();
+    ros::spin();
 
-  return 0;
+    return 0;
 }
