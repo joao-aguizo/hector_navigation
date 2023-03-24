@@ -29,7 +29,7 @@ public:
         buffer.setUsingDedicatedThread(true);
         costmap_2d_ros = new costmap_2d::Costmap2DROS("global_costmap", buffer);
         planner = new hector_exploration_planner::HectorExplorationPlanner();
-        planner->initialize("HectorExplorationPlanner", costmap_2d_ros);
+        planner->initialize("hector_exploration_planner", costmap_2d_ros);
 
         // get parameters
         nh.param<float>("replanTimerPeriod", replanTimerPeriod, 1.0);
