@@ -5,6 +5,7 @@
 #include <std_srvs/SetBool.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <hector_nav_msgs/GetRobotTrajectory.h>
+#include <costmap_2d/costmap_2d_ros.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <hector_exploration_planner/hector_exploration_planner.h>

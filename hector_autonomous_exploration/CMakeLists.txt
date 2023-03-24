@@ -18,6 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_srvs
   tf2_ros
   actionlib
+  costmap_2d
   hector_exploration_planner
 )
 
