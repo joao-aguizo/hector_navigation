@@ -40,7 +40,7 @@ public:
         exploreSrvServer = nh.advertiseService("start_stop_exploration", &AutoExploration::exploreHandler, this);
 
         // configure replanning timer
-        replanTimer = nh.createTimer(ros::Duration(replanTimerPeriod), &AutoExploration::goalCallback, this, false, true);
+        replanTimer = nh.createTimer(ros::Duration(replanTimerPeriod), &AutoExploration::replanCallback, this, false, true);
 
         ROS_INFO("Autonomous exploration node ready!");
     }
@@ -50,6 +50,7 @@ private:
     int planFailCounter = 0;
     int controllerFailCounter = 0;
     bool explorationEnabled = false;
+    std::mutex mtx; // mutex for common flag
 
 protected:
     ros::Timer replanTimer;
@@ -68,9 +69,9 @@ protected:
     float mbfAngleTolerance = 0.0;
     std::string mbfController = "";
 
-    void goalCallback(const ros::TimerEvent& event){
-        if (explorationEnabled){            
-            // call planner
+    void replanCallback(const ros::TimerEvent& event){
+        if (getExplorationEnabled()){            
+            // get robot pose in costmap
             geometry_msgs::PoseStamped robot_pose;
             costmap_2d_ros->getRobotPose(robot_pose);
 
@@ -84,7 +85,7 @@ protected:
                 
                 // check if plan failed more than the max allowed retries
                 if (planFailCounter > maxPlanRetries){
-                    explorationEnabled = false;
+                    setExplorationEnabled(false);
                     ROS_WARN("Maximum planning retries exceeded! Exploration stopped.");
                 }
                 return;
@@ -104,38 +105,42 @@ protected:
     }
 
     void goalDoneCallback(const actionlib::SimpleClientGoalState &state, const mbf_msgs::ExePathResultConstPtr &result){
-        // something is really wrong, abort!
-        if (state == actionlib::SimpleClientGoalState::StateEnum::LOST){
-            explorationEnabled = false;
-            return;
-        }
-        
-        // check for controller failures and count them
-        if (state == actionlib::SimpleClientGoalState::StateEnum::ABORTED){
-            controllerFailCounter++;
+        if (getExplorationEnabled()){
+
+             // something is really wrong, abort!
+            if (state == actionlib::SimpleClientGoalState::StateEnum::LOST){
+                setExplorationEnabled(false);
+                return;
+            }
             
-            // if controller fail counter exceeds maximum we return
-            if (controllerFailCounter > maxControllerRetries){
-                explorationEnabled = false;
-                ROS_WARN("Maximum controller retries exceeded! Exploration stopped.");
-            }else{
-                // check if controller failure was a non-recoverable or critical one
-                // http://docs.ros.org/en/kinetic/api/mbf_msgs/html/action/ExePath.html
-                switch (result->outcome){            
-                    case mbf_msgs::ExePathResult::FAILURE:
-                    case mbf_msgs::ExePathResult::CANCELED:
-                    case mbf_msgs::ExePathResult::NO_VALID_CMD:
-                    case mbf_msgs::ExePathResult::COLLISION:
-                    case mbf_msgs::ExePathResult::TF_ERROR:
-                    case mbf_msgs::ExePathResult::NOT_INITIALIZED:
-                    case mbf_msgs::ExePathResult::INVALID_PLUGIN:
-                    case mbf_msgs::ExePathResult::INTERNAL_ERROR:
-                    case mbf_msgs::ExePathResult::OUT_OF_MAP:
-                    case mbf_msgs::ExePathResult::MAP_ERROR:
-                    case mbf_msgs::ExePathResult::STOPPED:
-                        ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
-                        explorationEnabled = false;
-                        break;
+            // check for controller failures and count them
+            if (state == actionlib::SimpleClientGoalState::StateEnum::ABORTED){
+                controllerFailCounter++;
+                
+                // if controller fail counter exceeds maximum we return
+                if (controllerFailCounter > maxControllerRetries){
+                    controllerFailCounter = 0;
+                    setExplorationEnabled(false);
+                    ROS_WARN("Maximum controller retries exceeded! Exploration stopped.");
+                }else{
+                    // check if controller failure was a non-recoverable or critical one
+                    // http://docs.ros.org/en/kinetic/api/mbf_msgs/html/action/ExePath.html
+                    switch (result->outcome){            
+                        case mbf_msgs::ExePathResult::FAILURE:
+                        case mbf_msgs::ExePathResult::CANCELED:
+                        case mbf_msgs::ExePathResult::NO_VALID_CMD:
+                        case mbf_msgs::ExePathResult::COLLISION:
+                        case mbf_msgs::ExePathResult::TF_ERROR:
+                        case mbf_msgs::ExePathResult::NOT_INITIALIZED:
+                        case mbf_msgs::ExePathResult::INVALID_PLUGIN:
+                        case mbf_msgs::ExePathResult::INTERNAL_ERROR:
+                        case mbf_msgs::ExePathResult::OUT_OF_MAP:
+                        case mbf_msgs::ExePathResult::MAP_ERROR:
+                        case mbf_msgs::ExePathResult::STOPPED:
+                            ROS_WARN("Non-recoverable or critical 'exe_path' outcome. Aborting exploration...");
+                            setExplorationEnabled(false);
+                            break;
+                    }
                 }
             }
         }
@@ -144,11 +149,21 @@ protected:
     bool exploreHandler(std_srvs::SetBool::Request &req, std_srvs::SetBool::Response &res){
         res.success = true;
         res.message = "Successfully defined state.";
-        if (req.data == explorationEnabled){
+        if (req.data == getExplorationEnabled()){
             res.message = "Already defined as requested!";
         }
-        explorationEnabled = req.data;
+        setExplorationEnabled(req.data);
         return true;
+    }
+
+    bool getExplorationEnabled(){
+        std::lock_guard<std::mutex> locker(mtx);
+        return explorationEnabled;
+    }
+
+    void setExplorationEnabled(bool value){
+        std::lock_guard<std::mutex> locker(mtx);
+        explorationEnabled = value;
     }
 };
 
